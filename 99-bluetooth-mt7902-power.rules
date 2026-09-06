@@ -1,0 +1,2 @@
+# MediaTek MT7902 Bluetooth (Foxconn 0489:e156) - Disable USB autosuspend for LDAC audio streaming stability
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="0489", ATTR{idProduct}=="e156", ATTR{power/control}="on"

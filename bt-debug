@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""
+bt-debug: MediaTek MT7902 (Foxconn 0489:e156) Bluetooth Diagnostic & Health Monitor
+Part of Omarchy Linux / Antigravity Tools.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+
+TARGET_VENDOR = "0489"
+TARGET_PRODUCT = "e156"
+
+# ANSI Colors
+C_RESET = "\033[0m"
+C_BOLD = "\033[1m"
+C_RED = "\033[31m"
+C_GREEN = "\033[32m"
+C_YELLOW = "\033[33m"
+C_BLUE = "\033[34m"
+C_MAGENTA = "\033[35m"
+C_CYAN = "\033[36m"
+C_GRAY = "\033[90m"
+
+
+def read_sysfs(path: Path, max_bytes: int = 256) -> str:
+    """Safely read bounded content from sysfs."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read(max_bytes).strip()
+    except (OSError, PermissionError):
+        return ""
+
+
+def find_mt7902_usb() -> dict:
+    """Locate the MT7902 USB Bluetooth controller in sysfs."""
+    usb_base = Path("/sys/bus/usb/devices")
+    if not usb_base.exists():
+        return {}
+
+    for dev_path in usb_base.iterdir():
+        v_file = dev_path / "idVendor"
+        p_file = dev_path / "idProduct"
+        if v_file.is_file() and p_file.is_file():
+            vid = read_sysfs(v_file)
+            pid = read_sysfs(p_file)
+            if vid.lower() == TARGET_VENDOR and pid.lower() == TARGET_PRODUCT:
+                pwr_ctrl = read_sysfs(dev_path / "power" / "control")
+                pwr_delay = read_sysfs(dev_path / "power" / "autosuspend_delay_ms")
+                pwr_runtime = read_sysfs(dev_path / "power" / "runtime_status")
+                mfg = read_sysfs(dev_path / "manufacturer")
+                prod = read_sysfs(dev_path / "product")
+                busnum = read_sysfs(dev_path / "busnum")
+                devnum = read_sysfs(dev_path / "devnum")
+                speed = read_sysfs(dev_path / "speed")
+                return {
+                    "syspath": str(dev_path),
+                    "vendor": vid,
+                    "product": pid,
+                    "manufacturer": mfg or "Foxconn / Hon Hai",
+                    "product_name": prod or "Wireless_Device",
+                    "busnum": busnum,
+                    "devnum": devnum,
+                    "speed": speed,
+                    "power_control": pwr_ctrl,
+                    "autosuspend_delay_ms": pwr_delay,
+                    "runtime_status": pwr_runtime,
+                }
+    return {}
+
+
+def get_dkms_status() -> dict:
+    """Check DKMS module status and running kernel module path."""
+    res = {"installed": False, "version": "unknown", "mod_path": "unknown", "is_dkms": False}
+    try:
+        proc = subprocess.run(["dkms", "status", "btusb-e156"], capture_output=True, text=True, timeout=3)
+        if proc.returncode == 0 and "installed" in proc.stdout:
+            res["installed"] = True
+            m = re.search(r"btusb-e156/([\d\.]+)", proc.stdout)
+            if m:
+                res["version"] = m.group(1)
+    except Exception:
+        pass
+
+    try:
+        proc = subprocess.run(["modinfo", "-n", "btusb"], capture_output=True, text=True, timeout=3)
+        if proc.returncode == 0:
+            path = proc.stdout.strip()
+            res["mod_path"] = path
+            if "updates/dkms" in path:
+                res["is_dkms"] = True
+    except Exception:
+        pass
+
+    return res
+
+
+def get_bluetooth_ctl() -> dict:
+    """Query BlueZ status via bluetoothctl."""
+    res = {
+        "controller": "Unknown",
+        "name": "Unknown",
+        "powered": False,
+        "discoverable": False,
+        "pairable": False,
+        "devices": [],
+    }
+    try:
+        proc = subprocess.run(["bluetoothctl", "show"], capture_output=True, text=True, timeout=3)
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("Controller"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        res["controller"] = parts[1]
+                elif line.startswith("Name:"):
+                    res["name"] = line.split(":", 1)[1].strip()
+                elif line.startswith("Powered:"):
+                    res["powered"] = "yes" in line
+                elif line.startswith("Discoverable:"):
+                    res["discoverable"] = "yes" in line
+                elif line.startswith("Pairable:"):
+                    res["pairable"] = "yes" in line
+    except Exception:
+        pass
+
+    try:
+        proc = subprocess.run(["bluetoothctl", "devices"], capture_output=True, text=True, timeout=3)
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                parts = line.strip().split(maxsplit=2)
+                if len(parts) >= 3 and parts[0] == "Device":
+                    mac = parts[1]
+                    name = parts[2]
+                    # Check info for device
+                    info_proc = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True, timeout=2)
+                    connected = False
+                    battery = None
+                    if info_proc.returncode == 0:
+                        connected = "Connected: yes" in info_proc.stdout
+                        m_bat = re.search(r"Battery Percentage:.*\((\d+)\)", info_proc.stdout)
+                        if m_bat:
+                            battery = int(m_bat.group(1))
+                    res["devices"].append({
+                        "mac": mac,
+                        "name": name,
+                        "connected": connected,
+                        "battery": battery,
+                    })
+    except Exception:
+        pass
+
+    return res
+
+
+def get_audio_sinks() -> list:
+    """Retrieve active PipeWire Bluetooth audio sinks and codecs."""
+    sinks = []
+    try:
+        proc = subprocess.run(["pactl", "list", "sinks"], capture_output=True, text=True, timeout=3)
+        if proc.returncode == 0:
+            blocks = proc.stdout.split("Sink #")
+            for b in blocks:
+                if "bluez" in b.lower():
+                    name_m = re.search(r"Description:\s+(.*)", b)
+                    desc = name_m.group(1).strip() if name_m else "Bluetooth Audio"
+                    codec_m = re.search(r'api\.bluez5\.codec\s*=\s*"([^"]+)"', b)
+                    codec = codec_m.group(1).upper() if codec_m else "SBC"
+                    sample_m = re.search(r"Sample Specification:\s+(.*)", b)
+                    sample = sample_m.group(1).strip() if sample_m else "Unknown"
+                    vol_m = re.search(r"Volume:.*?(\d+)%", b)
+                    volume = int(vol_m.group(1)) if vol_m else None
+                    mute_m = re.search(r"Mute:\s+(yes|no)", b)
+                    muted = mute_m.group(1) == "yes" if mute_m else False
+
+                    sinks.append({
+                        "description": desc,
+                        "codec": codec,
+                        "sample": sample,
+                        "volume": volume,
+                        "muted": muted,
+                    })
+    except Exception:
+        pass
+    return sinks
+
+
+def get_kernel_events() -> list:
+    """Fetch recent kernel events related to Bluetooth/MT7902."""
+    events = []
+    try:
+        proc = subprocess.run(
+            ["journalctl", "-k", "-b", "--no-pager", "-n", "80"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                if any(k in line.lower() for k in ["bluetooth", "btusb", "hci0", "mt79", "0489:e156"]):
+                    events.append(line.strip())
+    except Exception:
+        pass
+    return events[-10:]  # Last 10 relevant events
+
+
+def print_status():
+    """Print an attractive, colorized diagnostic report."""
+    usb = find_mt7902_usb()
+    dkms = get_dkms_status()
+    bt = get_bluetooth_ctl()
+    sinks = get_audio_sinks()
+    events = get_kernel_events()
+
+    print(f"\n{C_BOLD}{C_CYAN}==================================================================={C_RESET}")
+    print(f"{C_BOLD}{C_CYAN}    MediaTek MT7902 Bluetooth (Foxconn 0489:e156) Diagnostic     {C_RESET}")
+    print(f"{C_BOLD}{C_CYAN}==================================================================={C_RESET}\n")
+
+    # 1. Hardware & USB
+    print(f"{C_BOLD}[1] HARDWARE & USB BUS{C_RESET}")
+    if usb:
+        print(f"  Device ID:          {C_GREEN}0x{usb['vendor']}:0x{usb['product']}{C_RESET} ({usb['manufacturer']} - {usb['product_name']})")
+        print(f"  USB Topology:       Bus {usb['busnum']}, Device {usb['devnum']} (Speed: {usb['speed']} Mbps)")
+        print(f"  Sysfs Path:         {C_GRAY}{usb['syspath']}{C_RESET}")
+        
+        # Power Management check
+        ctrl = usb['power_control']
+        if ctrl == "on":
+            pwr_badge = f"{C_GREEN}● on (Autosuspend DISABLED - Ultra Stable){C_RESET}"
+        else:
+            pwr_badge = f"{C_RED}▲ {ctrl} (Autosuspend ACTIVE - May cause dropouts!){C_RESET}"
+        print(f"  Power Control:      {pwr_badge}")
+        print(f"  Autosuspend Delay:  {usb['autosuspend_delay_ms']} ms")
+        print(f"  Runtime Status:     {usb['runtime_status']}")
+    else:
+        print(f"  {C_RED}✗ Hardware 0489:e156 not found on USB bus!{C_RESET}")
+    print()
+
+    # 2. Driver & DKMS
+    print(f"{C_BOLD}[2] DRIVER & DKMS SUBSYSTEM{C_RESET}")
+    if dkms["installed"]:
+        print(f"  DKMS Module:        {C_GREEN}● Installed (v{dkms['version']}){C_RESET}")
+    else:
+        print(f"  DKMS Module:        {C_RED}✗ Not installed{C_RESET}")
+
+    if dkms["is_dkms"]:
+        print(f"  Active Driver:      {C_GREEN}● DKMS override ({dkms['mod_path']}){C_RESET}")
+    else:
+        print(f"  Active Driver:      {C_YELLOW}▲ In-tree ({dkms['mod_path']}){C_RESET}")
+    print()
+
+    # 3. BlueZ & Controller
+    print(f"{C_BOLD}[3] BLUEZ CONTROLLER & DEVICES{C_RESET}")
+    state = f"{C_GREEN}Powered ON{C_RESET}" if bt["powered"] else f"{C_RED}Powered OFF{C_RESET}"
+    print(f"  HCI Controller:     {C_CYAN}{bt['controller']}{C_RESET} ({bt['name']}) - {state}")
+    
+    if bt["devices"]:
+        for d in bt["devices"]:
+            conn_badge = f"{C_GREEN}● CONNECTED{C_RESET}" if d["connected"] else f"{C_GRAY}○ Paired (Disconnected){C_RESET}"
+            bat_str = f" [Battery: {d['battery']}%]" if d["battery"] is not None else ""
+            print(f"  Device:             {C_BOLD}{d['name']}{C_RESET} ({d['mac']}) -> {conn_badge}{bat_str}")
+    else:
+        print(f"  Devices:            {C_GRAY}No paired devices{C_RESET}")
+    print()
+
+    # 4. Audio Streams & Codecs
+    print(f"{C_BOLD}[4] AUDIO STREAM & PIPEWIRE CODEC{C_RESET}")
+    if sinks:
+        for s in sinks:
+            codec_color = C_GREEN if s['codec'] in ["LDAC", "APTX_HD", "APTX"] else C_YELLOW
+            mute_str = f" {C_RED}[MUTED]{C_RESET}" if s['muted'] else ""
+            print(f"  Audio Sink:         {C_BOLD}{s['description']}{C_RESET}")
+            print(f"  Active Codec:       {codec_color}{C_BOLD}{s['codec']}{C_RESET} (Hi-Res Streaming)")
+            print(f"  Specification:      {s['sample']}")
+            print(f"  Volume:             {s['volume']}%{mute_str}")
+    else:
+        print(f"  Active Sinks:       {C_GRAY}No active Bluetooth audio streaming{C_RESET}")
+    print()
+
+    # 5. Recent Kernel Log
+    print(f"{C_BOLD}[5] RECENT KERNEL EVENTS (DMESG){C_RESET}")
+    if events:
+        for ev in events:
+            # Highlight warnings/errors
+            if "error" in ev.lower() or "fail" in ev.lower() or "not supported" in ev.lower():
+                print(f"  {C_YELLOW}{ev}{C_RESET}")
+            else:
+                print(f"  {C_GRAY}{ev}{C_RESET}")
+    else:
+        print(f"  {C_GRAY}No recent Bluetooth kernel events{C_RESET}")
+
+    print(f"\n{C_BOLD}{C_CYAN}==================================================================={C_RESET}\n")
+
+
+def monitor_loop():
+    """Live monitor audio streaming and connection health."""
+    print(f"{C_BOLD}{C_CYAN}Starting live monitoring of MT7902 Bluetooth (Press Ctrl+C to stop)...{C_RESET}\n")
+    try:
+        while True:
+            usb = find_mt7902_usb()
+            sinks = get_audio_sinks()
+            ts = time.strftime("%H:%M:%S")
+            pwr = usb.get("power_control", "unknown")
+            pwr_str = f"{C_GREEN}PWR: on{C_RESET}" if pwr == "on" else f"{C_RED}PWR: {pwr}{C_RESET}"
+            
+            if sinks:
+                s = sinks[0]
+                print(f"[{ts}] {pwr_str} | Sink: {s['description']} | Codec: {C_BOLD}{s['codec']}{C_RESET} | Vol: {s['volume']}%")
+            else:
+                print(f"[{ts}] {pwr_str} | No active audio sink")
+            time.sleep(2)
+    except KeyboardInterrupt:
+        print(f"\n{C_YELLOW}Monitoring stopped.{C_RESET}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="MediaTek MT7902 Bluetooth Diagnostic Tool")
+    parser.add_argument("--status", action="store_true", help="Show comprehensive status (default)")
+    parser.add_argument("--monitor", action="store_true", help="Live monitor audio streaming and power status")
+    parser.add_argument("--json", action="store_true", help="Output raw JSON data")
+    args = parser.parse_args()
+
+    if args.json:
+        data = {
+            "hardware": find_mt7902_usb(),
+            "dkms": get_dkms_status(),
+            "bluez": get_bluetooth_ctl(),
+            "audio_sinks": get_audio_sinks(),
+            "recent_events": get_kernel_events(),
+        }
+        print(json.dumps(data, indent=2))
+        return
+
+    if args.monitor:
+        monitor_loop()
+        return
+
+    print_status()
+
+
+if __name__ == "__main__":
+    main()
