@@ -6,11 +6,9 @@ Part of Omarchy Linux / Antigravity Tools.
 
 import argparse
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import time
 
 TARGET_VENDOR = "0489"
@@ -179,9 +177,13 @@ def get_audio_sinks() -> list:
                     mute_m = re.search(r"Mute:\s+(yes|no)", b)
                     muted = mute_m.group(1) == "yes" if mute_m else False
 
+                    quality_m = re.search(r'bluez5\.a2dp\.ldac\.quality\s*=\s*"([^"]+)"', b)
+                    quality = quality_m.group(1).lower() if quality_m else None
+
                     sinks.append({
                         "description": desc,
                         "codec": codec,
+                        "quality": quality,
                         "sample": sample,
                         "volume": volume,
                         "muted": muted,
@@ -275,8 +277,18 @@ def print_status():
         for s in sinks:
             codec_color = C_GREEN if s['codec'] in ["LDAC", "APTX_HD", "APTX"] else C_YELLOW
             mute_str = f" {C_RED}[MUTED]{C_RESET}" if s['muted'] else ""
+            quality_info = " (Hi-Res Streaming)"
+            if s['codec'] == "LDAC":
+                q_map = {
+                    "hq": "HQ - 990 kbps (Extreme)",
+                    "sq": "SQ - 660 kbps (Ultra Stable Hi-Res)",
+                    "mq": "MQ - 330 kbps (Standard)",
+                    "auto": "Auto (Adaptive)",
+                }
+                if s.get("quality") in q_map:
+                    quality_info = f" [{q_map[s['quality']]}]"
             print(f"  Audio Sink:         {C_BOLD}{s['description']}{C_RESET}")
-            print(f"  Active Codec:       {codec_color}{C_BOLD}{s['codec']}{C_RESET} (Hi-Res Streaming)")
+            print(f"  Active Codec:       {codec_color}{C_BOLD}{s['codec']}{C_RESET}{quality_info}")
             print(f"  Specification:      {s['sample']}")
             print(f"  Volume:             {s['volume']}%{mute_str}")
     else:
