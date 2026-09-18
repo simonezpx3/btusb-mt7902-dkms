@@ -83,8 +83,8 @@ bt-debug
   Active Driver:      ● DKMS override (/lib/modules/7.1.9-arch1-2/updates/dkms/btusb.ko.zst)
 
 [3] BLUEZ CONTROLLER & DEVICES
-  HCI Controller:     AC:F2:3C:56:6E:28 (cml) - Powered ON
-  Device:             AN01 (D3:0D:EC:35:B7:AA) -> ● CONNECTED [Battery: 100%]
+  HCI Controller:     AC:F2:3C:XX:XX:XX (workstation) - Powered ON
+  Device:             AN01 (D3:0D:EC:XX:XX:XX) -> ● CONNECTED [Battery: 100%]
 
 [4] AUDIO STREAM & PIPEWIRE CODEC
   Audio Sink:         AN01

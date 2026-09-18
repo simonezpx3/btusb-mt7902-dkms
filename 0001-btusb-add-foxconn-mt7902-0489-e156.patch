@@ -1,5 +1,5 @@
---- /home/simonez/btusb-patch-e156/btusb.c.bak	2026-08-23 15:12:58.399476243 +0200
-+++ /home/simonez/btusb-patch-e156/btusb.c	2026-08-23 15:12:58.403476326 +0200
+--- a/drivers/bluetooth/btusb.c
++++ b/drivers/bluetooth/btusb.c
 @@ -645,6 +645,8 @@
  						     BTUSB_WIDEBAND_SPEECH },
  	{ USB_DEVICE(0x0489, 0xe158), .driver_info = BTUSB_MEDIATEK |
