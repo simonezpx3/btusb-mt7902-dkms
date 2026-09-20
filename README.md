@@ -1,159 +1,42 @@
 # MediaTek MT7902 Bluetooth DKMS Driver & Power Fix (`0489:e156`)
 
-[![License: GPL-2.0](https://img.shields.io/badge/License-GPL%202.0-blue.svg)](LICENSE)
-[![Linux: Arch / Omarchy](https://img.shields.io/badge/Linux-Arch%20%2F%20Omarchy-1793d1.svg?logo=arch-linux)](https://archlinux.org)
-[![DKMS: Supported](https://img.shields.io/badge/DKMS-Supported-brightgreen.svg)]()
-[![Hardware: MediaTek MT7902](https://img.shields.io/badge/Hardware-MediaTek%20MT7902-orange.svg)]()
-[![Codec: Sony LDAC Hi--Res](https://img.shields.io/badge/Audio-Sony%20LDAC%2048kHz-success.svg)]()
+[![Version](https://img.shields.io/badge/version-1.0.2-3b82f6.svg)](https://github.com/simonezpx3/btusb-mt7902-dkms/releases/tag/v1.0.2)
+[![Arch Linux](https://img.shields.io/badge/arch--linux-compatible-1793d1.svg?logo=arch-linux&logoColor=white)](https://archlinux.org)
+[![Omarchy](https://img.shields.io/badge/omarchy-compatible-10b981.svg)](https://github.com/omacom/omarchy)
+[![DKMS](https://img.shields.io/badge/dkms-autoinstall-f59e0b.svg)](https://github.com/dell/dkms)
+[![Audio](https://img.shields.io/badge/audio-Sony%20LDAC%20Hi--Res-06b6d4.svg)](https://www.sony.net/Products/LDAC/)
+[![License: GPL-2.0](https://img.shields.io/badge/license-GPL--2.0-8b5cf6.svg)](LICENSE)
 
-Production-ready out-of-tree **DKMS kernel driver**, **power management fix**, and **diagnostic suite** for the **MediaTek MT7902** (Filogic 310) Bluetooth controller (`Foxconn 0489:e156`).
+Production-ready out-of-tree **DKMS kernel driver**, **power management fix**, and **diagnostic suite** for the **MediaTek MT7902** (Filogic 310) Bluetooth controller (`Foxconn 0489:e156`). Verified on **Arch Linux** and **Omarchy Linux** (Kernels 6.x / 7.x).
 
-Tested and verified on **Arch Linux**, **Omarchy Linux** (Kernel 6.x to 7.x), Gigabyte B850M FORCE WIFI6E, HP EliteMini, and ASUS gaming laptops.
+**Authors:** `simonez & Arci`  
+**Version:** `1.0.2`  
+**License:** GNU GPL-2.0  
 
 ---
 
-## 🔍 The Problem
+## 1. Hardware Architecture & Problem Resolution
 
+### The Hardware Context
 Modern motherboards and laptops bundle Wi-Fi and Bluetooth onto a single M.2 Key-E card (such as the MediaTek MT7902 combo):
-* **Wi-Fi 6E** is routed through the **PCIe bus** (`14c3:7902`) and works out-of-the-box via the in-tree kernel driver `mt7921e`.
-* **Bluetooth 5.3** is routed through the internal **USB 2.0 bus** with OEM vendor/product ID **`0489:e156`** (Foxconn / Hon Hai).
+* **Wi-Fi 6E:** Routed via PCIe (`14c3:7902`) and supported in-tree via `mt7921e`.
+* **Bluetooth 5.3:** Routed through the internal USB 2.0 bus with Foxconn OEM ID **`0489:e156`**.
 
-### Why doesn't Bluetooth work out of the box?
-1. **Missing Upstream ID:** While AzureWave variants (`13d3:3579`) are present upstream in Linux v7.1+, the Foxconn ID `0489:e156` has not been merged into `drivers/bluetooth/btusb.c`.
-2. **Why `echo "0489 e156" > /sys/bus/usb/drivers/btusb/new_id` fails:** Generic binding assigns `driver_info = 0`. Without the `BTUSB_MEDIATEK` quirk, the driver skips the MediaTek vendor handshake, fails to load the MCU RAM firmware (`BT_RAM_CODE_MT7902_*.bin`), and crashes with timeout error `-110`.
-3. **USB Autosuspend Glitches:** When idling, Linux puts the USB controller into autosuspend (`power/control = auto`). For high-bitrate audio streaming (e.g., **Sony LDAC 990 kbps** or **aptX HD**), waking the controller causes audio stuttering, buffer underruns, and random disconnects.
-
----
-
-## 🛠️ The Solution
-
-This repository provides:
-1. **Patched `btusb` Driver:** Adds `USB_DEVICE(0x0489, 0xe156)` with `BTUSB_MEDIATEK | BTUSB_WIDEBAND_SPEECH | BTUSB_VALID_LE_STATES`.
-2. **DKMS Integration:** Automatically recompiles and updates your kernel module on every system update (`pacman -Syu` / kernel upgrade) without manual intervention.
-3. **USB Power Stabilization:** Installs udev and modprobe rules to permanently keep the controller in `power/control = on` mode (`enable_autosuspend=0`).
-4. **`bt-debug` Diagnostic Utility:** Real-time Python CLI for hardware inspection, DKMS validation, and live audio stream monitoring.
+### Why Stock Kernels Fail
+1. **Missing Upstream ID:** While AzureWave variants (`13d3:3579`) are merged upstream in Linux v7.1+, the Foxconn device ID `0489:e156` is missing from in-tree `drivers/bluetooth/btusb.c`.
+2. **Generic Binding Limitations:** Binding via `new_id` assigns `driver_info = 0`. Without the `BTUSB_MEDIATEK` vendor quirk, the controller fails MCU RAM firmware initialization (`BT_RAM_CODE_MT7902_*.bin`) and times out with error `-110`.
+3. **USB Autosuspend Audio Dropout:** Under default aggressive USB autosuspend (`power/control = auto`), waking the controller interrupts high-bitrate audio streaming (**Sony LDAC 990 kbps / 48 kHz**), causing stuttering and disconnects.
 
 ---
 
-## 🚀 Quick Installation (Automated)
+## 2. Key Components & Driver Features
 
-Clone this repository and run the installer:
+* **Patched `btusb` Driver:** Registers `USB_DEVICE(0x0489, 0xe156)` with `BTUSB_MEDIATEK | BTUSB_WIDEBAND_SPEECH | BTUSB_VALID_LE_STATES`.
+* **Automated DKMS Integration:** Automatically rebuilds the module on every kernel update (`pacman -Syu`) into `/lib/modules/$(uname -r)/updates/dkms/`.
+* **Permanent Power Stabilization:** Deploys udev and modprobe rules to permanently maintain `power/control = on` (`enable_autosuspend=0`).
+* **Hardware Diagnostic Suite (`bt-debug`):** Real-time CLI tool for hardware inspection, DKMS validation, and live audio stream monitoring.
 
-```bash
-git clone https://github.com/simonezpx3/btusb-mt7902-dkms.git
-cd btusb-mt7902-dkms
-chmod +x install.sh
-sudo ./install.sh
-```
-
-### What `install.sh` does:
-* Verifies `dkms` and `linux-headers` are installed.
-* Registers, builds, and installs the module into `/lib/modules/$(uname -r)/updates/dkms/`.
-* Deploys `/etc/udev/rules.d/99-bluetooth-mt7902-power.rules`.
-* Deploys `/etc/modprobe.d/btusb.conf`.
-* Installs the `bt-debug` utility to `/usr/local/bin/bt-debug`.
-* Immediately forces live power control to `on`.
-
----
-
-## 📊 Verification & Diagnostics
-
-Run the bundled diagnostic tool:
-
-```bash
-bt-debug
-```
-
-### Example Output:
-```text
-===================================================================
-    MediaTek MT7902 Bluetooth (Foxconn 0489:e156) Diagnostic     
-===================================================================
-
-[1] HARDWARE & USB BUS
-  Device ID:          0x0489:0xe156 (MediaTek Inc. - Wireless_Device)
-  USB Topology:       Bus 1, Device 4 (Speed: 480 Mbps)
-  Sysfs Path:         /sys/bus/usb/devices/1-10
-  Power Control:      ● on (Autosuspend DISABLED - Ultra Stable)
-  Autosuspend Delay:  2000 ms
-  Runtime Status:     active
-
-[2] DRIVER & DKMS SUBSYSTEM
-  DKMS Module:        ● Installed (v1.0)
-  Active Driver:      ● DKMS override (/lib/modules/7.1.9-arch1-2/updates/dkms/btusb.ko.zst)
-
-[3] BLUEZ CONTROLLER & DEVICES
-  HCI Controller:     AC:F2:3C:XX:XX:XX (workstation) - Powered ON
-  Device:             AN01 (D3:0D:EC:XX:XX:XX) -> ● CONNECTED [Battery: 100%]
-
-[4] AUDIO STREAM & PIPEWIRE CODEC
-  Audio Sink:         AN01
-  Active Codec:       LDAC (Hi-Res Streaming)
-  Specification:      float32le 2ch 48000Hz
-  Volume:             39%
-
-[5] RECENT KERNEL EVENTS (DMESG)
-  No recent Bluetooth kernel events
-===================================================================
-```
-
-### Live Stream Monitoring
-To monitor audio streaming and ensure zero packet dropouts:
-```bash
-bt-debug --monitor
-```
-
----
-
-## 📖 Manual Installation (Alternative)
-
-If you prefer to install manually step-by-step:
-
-### 1. Prerequisites (Arch Linux)
-```bash
-sudo pacman -S --needed linux-headers base-devel dkms
-```
-
-### 2. Register DKMS
-```bash
-sudo mkdir -p /usr/src/btusb-e156-1.0
-sudo cp btusb.c Makefile dkms.conf bt*.h /usr/src/btusb-e156-1.0/
-sudo dkms add -m btusb-e156 -v 1.0
-sudo dkms build -m btusb-e156 -v 1.0
-sudo dkms install -m btusb-e156 -v 1.0
-```
-
-### 3. Disable Autosuspend
-```bash
-sudo cp 99-bluetooth-mt7902-power.rules /etc/udev/rules.d/
-sudo cp btusb.conf /etc/modprobe.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger -s usb -a idVendor=0489 -a idProduct=e156
-```
-
-### 4. Reload Driver
-```bash
-sudo modprobe -r btusb
-sudo modprobe btusb
-sudo systemctl restart bluetooth
-```
-
----
-
-## 🗑️ Uninstallation
-
-To cleanly remove the DKMS module and restore stock in-tree drivers:
-
-```bash
-sudo ./uninstall.sh
-```
-
----
-
-## 📜 Upstream Kernel Patch
-
-For Linux kernel developers or maintainers packaging vanilla kernels, the patch file is provided at [`0001-btusb-add-foxconn-mt7902-0489-e156.patch`](0001-btusb-add-foxconn-mt7902-0489-e156.patch):
-
+### Upstream Kernel Patch Diff
 ```diff
 --- a/drivers/bluetooth/btusb.c
 +++ b/drivers/bluetooth/btusb.c
@@ -163,14 +46,47 @@ For Linux kernel developers or maintainers packaging vanilla kernels, the patch 
  						     BTUSB_WIDEBAND_SPEECH },
 +	{ USB_DEVICE(0x0489, 0xe156), .driver_info = BTUSB_MEDIATEK |
 +						     BTUSB_WIDEBAND_SPEECH },
- 
- 	/* Additional MediaTek MT7921 Bluetooth devices */
- 	{ USB_DEVICE(0x0489, 0xe0c8), .driver_info = BTUSB_MEDIATEK |
 ```
 
 ---
 
-## 👥 Authors & Maintainers
-* **simonez & Arci**
-* Developed for **Omarchy Linux** & the Arch Linux Community.
-* Licensed under the [GNU General Public License v2](LICENSE).
+## 3. Installation & Removal
+
+### Automated Installation
+```bash
+git clone https://github.com/simonezpx3/btusb-mt7902-dkms.git
+cd btusb-mt7902-dkms
+chmod +x install.sh
+sudo ./install.sh
+```
+
+The script automatically verifies prerequisites (`dkms`, `linux-headers`), builds and registers the module, deploys power stabilization rules (`/etc/udev/rules.d/99-bluetooth-mt7902-power.rules`, `/etc/modprobe.d/btusb.conf`), and installs `bt-debug`.
+
+### Removal
+```bash
+cd btusb-mt7902-dkms
+sudo ./uninstall.sh
+```
+
+---
+
+## 4. Verification & Diagnostics (`bt-debug`)
+
+Run the bundled diagnostic utility to verify hardware status, DKMS module binding, and active audio codec:
+
+```bash
+bt-debug            # Hardware overview, DKMS state, and connected devices
+bt-debug --monitor  # Live audio packet stream telemetry
+```
+
+### Example Diagnostic Output
+```text
+===================================================================
+    MediaTek MT7902 Bluetooth (Foxconn 0489:e156) Diagnostic     
+===================================================================
+[1] HARDWARE & USB BUS:    ● 0x0489:0xe156 (Power: on, Autosuspend: DISABLED)
+[2] DRIVER & DKMS:         ● Installed (v1.0) via /lib/modules/updates/dkms/
+[3] CONTROLLER & DEVICES:  ● Powered ON | AN01 Connected [Battery: 100%]
+[4] AUDIO & PIPEWIRE:      ● Sink: AN01 | Codec: LDAC (float32le 2ch 48000Hz)
+===================================================================
+```
