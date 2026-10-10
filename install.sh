@@ -6,7 +6,7 @@ set -euo pipefail
 umask 022
 
 PACKAGE_NAME="btusb-e156"
-PACKAGE_VERSION="1.0"
+PACKAGE_VERSION="1.1"
 SRC_DIR="/usr/src/${PACKAGE_NAME}-${PACKAGE_VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

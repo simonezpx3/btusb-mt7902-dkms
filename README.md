@@ -1,6 +1,6 @@
 # MediaTek MT7902 Bluetooth DKMS Driver & Power Fix (`0489:e156`)
 
-[![Version](https://img.shields.io/badge/version-1.0.2-3b82f6.svg)](https://github.com/simonezpx3/btusb-mt7902-dkms/releases/tag/v1.0.2)
+[![Version](https://img.shields.io/badge/version-1.1.0-3b82f6.svg)](https://github.com/simonezpx3/btusb-mt7902-dkms/releases/tag/v1.1.0)
 [![Arch Linux](https://img.shields.io/badge/arch--linux-compatible-1793d1.svg?logo=arch-linux&logoColor=white)](https://archlinux.org)
 [![Omarchy](https://img.shields.io/badge/omarchy-compatible-10b981.svg)](https://github.com/omacom/omarchy)
 [![DKMS](https://img.shields.io/badge/dkms-autoinstall-f59e0b.svg)](https://github.com/dell/dkms)
@@ -10,7 +10,7 @@
 Production-ready out-of-tree **DKMS kernel driver**, **power management fix**, and **diagnostic suite** for the **MediaTek MT7902** (Filogic 310) Bluetooth controller (`Foxconn 0489:e156`). Verified on **Arch Linux** and **Omarchy Linux** (Kernels 6.x / 7.x).
 
 **Authors:** `simonez & Arci`  
-**Version:** `1.0.2`  
+**Version:** `1.1.0`  
 **License:** GNU GPL-2.0  
 
 ---
@@ -33,8 +33,9 @@ Modern motherboards and laptops bundle Wi-Fi and Bluetooth onto a single M.2 Key
 
 * **Patched `btusb` Driver:** Registers `USB_DEVICE(0x0489, 0xe156)` with `BTUSB_MEDIATEK | BTUSB_WIDEBAND_SPEECH | BTUSB_VALID_LE_STATES`.
 * **Automated DKMS Integration:** Automatically rebuilds the module on every kernel update (`pacman -Syu`) into `/lib/modules/$(uname -r)/updates/dkms/`.
-* **Permanent Power Stabilization:** Deploys udev and modprobe rules to permanently maintain `power/control = on` (`enable_autosuspend=0`).
-* **Hardware Diagnostic Suite (`bt-debug`):** Real-time CLI tool for hardware inspection, DKMS validation, and live audio stream monitoring.
+* **Permanent Power Stabilization:** Deploys udev and modprobe rules to permanently maintain `power/control = on` (`enable_autosuspend=0`) for stutter-free **Sony LDAC 990 kbps / 96 kHz** audio streaming.
+* **Hardened POSIX Installer:** Re-architected with atomic `install -m` permissions (`0755`/`0644`), strict `umask 022`, and defensive path assertions.
+* **Privacy-Preserving Diagnostic Suite (`bt-debug`):** Real-time CLI tool for hardware inspection, BlueZ state, and live audio monitoring with automatic Bluetooth MAC address masking (`XX:XX:XX:**:**:**`) and JSON export.
 
 ### Upstream Kernel Patch Diff
 ```diff
@@ -60,7 +61,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-The script automatically verifies prerequisites (`dkms`, `linux-headers`), builds and registers the module, deploys power stabilization rules (`/etc/udev/rules.d/99-bluetooth-mt7902-power.rules`, `/etc/modprobe.d/btusb.conf`), and installs `bt-debug`.
+The script automatically verifies prerequisites (`dkms`, `linux-headers`), builds and registers the module, deploys power stabilization rules (`/etc/udev/rules.d/99-bluetooth-mt7902-power.rules`, `/etc/modprobe.d/btusb.conf`), and installs `bt-debug` into `/usr/local/bin/`.
 
 ### Removal
 ```bash
@@ -72,10 +73,12 @@ sudo ./uninstall.sh
 
 ## 4. Verification & Diagnostics (`bt-debug`)
 
-Run the bundled diagnostic utility to verify hardware status, DKMS module binding, and active audio codec:
+Run the bundled diagnostic utility to verify hardware status, DKMS module binding, BlueZ devices, and active PipeWire audio codecs:
 
 ```bash
-bt-debug            # Hardware overview, DKMS state, and connected devices
+bt-debug            # Hardware overview, DKMS state, and devices (MAC masked for privacy)
+bt-debug --json     # Machine-readable JSON output for automated scripting
+bt-debug --no-mask  # Display raw unmasked hardware MAC addresses locally
 bt-debug --monitor  # Live audio packet stream telemetry
 ```
 
@@ -84,9 +87,31 @@ bt-debug --monitor  # Live audio packet stream telemetry
 ===================================================================
     MediaTek MT7902 Bluetooth (Foxconn 0489:e156) Diagnostic     
 ===================================================================
-[1] HARDWARE & USB BUS:    ● 0x0489:0xe156 (Power: on, Autosuspend: DISABLED)
-[2] DRIVER & DKMS:         ● Installed (v1.0) via /lib/modules/updates/dkms/
-[3] CONTROLLER & DEVICES:  ● Powered ON | AN01 Connected [Battery: 100%]
-[4] AUDIO & PIPEWIRE:      ● Sink: AN01 | Codec: LDAC (float32le 2ch 48000Hz)
+
+[1] HARDWARE & USB BUS
+  Device ID:          0x0489:0xe156 (MediaTek Inc. - Wireless_Device)
+  USB Topology:       Bus 6, Device 4 (Speed: 480 Mbps)
+  Sysfs Path:         /sys/bus/usb/devices/6-10
+  Power Control:      ● on (Autosuspend DISABLED - Ultra Stable)
+  Autosuspend Delay:  2000 ms
+  Runtime Status:     active
+
+[2] DRIVER & DKMS SUBSYSTEM
+  DKMS Module:        ● Installed (v1.1)
+  Active Driver:      ● DKMS override (/lib/modules/.../updates/dkms/btusb.ko.zst)
+
+[3] BLUEZ CONTROLLER & DEVICES
+  HCI Controller:     AC:F2:3C:**:**:** (cml) - Powered ON
+  Device:             AN01 (D3:0D:EC:**:**:**) -> ● CONNECTED [Battery: 100%]
+
+[4] AUDIO STREAM & PIPEWIRE CODEC
+  Audio Sink:         AN01
+  Active Codec:       LDAC [MQ - 330 kbps (Standard)]
+  Specification:      float32le 2ch 96000Hz
+  Volume:             50%
+
+[5] RECENT KERNEL EVENTS (DMESG)
+  No recent Bluetooth kernel events
+
 ===================================================================
 ```
