@@ -25,6 +25,22 @@ C_MAGENTA = "\033[35m"
 C_CYAN = "\033[36m"
 C_GRAY = "\033[90m"
 
+MAC_COLON_REGEX = re.compile(
+    r"\b([0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2})[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}[:-][0-9A-Fa-f]{2}\b"
+)
+MAC_UNDERSCORE_REGEX = re.compile(
+    r"\b([0-9A-Fa-f]{2}_[0-9A-Fa-f]{2}_[0-9A-Fa-f]{2})_[0-9A-Fa-f]{2}_[0-9A-Fa-f]{2}_[0-9A-Fa-f]{2}\b"
+)
+
+
+def mask_mac(text: str, enabled: bool = True) -> str:
+    """Mask the device-specific half of Bluetooth MAC addresses to preserve hardware privacy."""
+    if not text or not enabled:
+        return text
+    masked = MAC_COLON_REGEX.sub(r"\1:**:**:**", text)
+    masked = MAC_UNDERSCORE_REGEX.sub(r"\1_**_**_**", masked)
+    return masked
+
 
 def read_sysfs(path: Path, max_bytes: int = 256) -> str:
     """Safely read bounded content from sysfs."""
@@ -41,7 +57,12 @@ def find_mt7902_usb() -> dict:
     if not usb_base.exists():
         return {}
 
-    for dev_path in usb_base.iterdir():
+    try:
+        dev_list = list(usb_base.iterdir())
+    except (OSError, PermissionError):
+        return {}
+
+    for dev_path in dev_list:
         v_file = dev_path / "idVendor"
         p_file = dev_path / "idProduct"
         if v_file.is_file() and p_file.is_file():
@@ -98,7 +119,7 @@ def get_dkms_status() -> dict:
     return res
 
 
-def get_bluetooth_ctl() -> dict:
+def get_bluetooth_ctl(mask: bool = True) -> dict:
     """Query BlueZ status via bluetoothctl."""
     res = {
         "controller": "Unknown",
@@ -116,7 +137,7 @@ def get_bluetooth_ctl() -> dict:
                 if line.startswith("Controller"):
                     parts = line.split()
                     if len(parts) >= 2:
-                        res["controller"] = parts[1]
+                        res["controller"] = mask_mac(parts[1], mask)
                 elif line.startswith("Name:"):
                     res["name"] = line.split(":", 1)[1].strip()
                 elif line.startswith("Powered:"):
@@ -134,10 +155,15 @@ def get_bluetooth_ctl() -> dict:
             for line in proc.stdout.splitlines():
                 parts = line.strip().split(maxsplit=2)
                 if len(parts) >= 3 and parts[0] == "Device":
-                    mac = parts[1]
+                    raw_mac = parts[1]
                     name = parts[2]
-                    # Check info for device
-                    info_proc = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True, timeout=2)
+                    # Query BlueZ using raw MAC
+                    info_proc = subprocess.run(
+                        ["bluetoothctl", "info", raw_mac],
+                        capture_output=True,
+                        text=True,
+                        timeout=2,
+                    )
                     connected = False
                     battery = None
                     if info_proc.returncode == 0:
@@ -146,7 +172,7 @@ def get_bluetooth_ctl() -> dict:
                         if m_bat:
                             battery = int(m_bat.group(1))
                     res["devices"].append({
-                        "mac": mac,
+                        "mac": mask_mac(raw_mac, mask),
                         "name": name,
                         "connected": connected,
                         "battery": battery,
@@ -157,7 +183,7 @@ def get_bluetooth_ctl() -> dict:
     return res
 
 
-def get_audio_sinks() -> list:
+def get_audio_sinks(mask: bool = True) -> list:
     """Retrieve active PipeWire Bluetooth audio sinks and codecs."""
     sinks = []
     try:
@@ -181,7 +207,7 @@ def get_audio_sinks() -> list:
                     quality = quality_m.group(1).lower() if quality_m else None
 
                     sinks.append({
-                        "description": desc,
+                        "description": mask_mac(desc, mask),
                         "codec": codec,
                         "quality": quality,
                         "sample": sample,
@@ -193,7 +219,7 @@ def get_audio_sinks() -> list:
     return sinks
 
 
-def get_kernel_events() -> list:
+def get_kernel_events(mask: bool = True) -> list:
     """Fetch recent kernel events related to Bluetooth/MT7902."""
     events = []
     try:
@@ -206,19 +232,19 @@ def get_kernel_events() -> list:
         if proc.returncode == 0:
             for line in proc.stdout.splitlines():
                 if any(k in line.lower() for k in ["bluetooth", "btusb", "hci0", "mt79", "0489:e156"]):
-                    events.append(line.strip())
+                    events.append(mask_mac(line.strip(), mask))
     except Exception:
         pass
     return events[-10:]  # Last 10 relevant events
 
 
-def print_status():
+def print_status(mask: bool = True):
     """Print an attractive, colorized diagnostic report."""
     usb = find_mt7902_usb()
     dkms = get_dkms_status()
-    bt = get_bluetooth_ctl()
-    sinks = get_audio_sinks()
-    events = get_kernel_events()
+    bt = get_bluetooth_ctl(mask=mask)
+    sinks = get_audio_sinks(mask=mask)
+    events = get_kernel_events(mask=mask)
 
     print(f"\n{C_BOLD}{C_CYAN}==================================================================={C_RESET}")
     print(f"{C_BOLD}{C_CYAN}    MediaTek MT7902 Bluetooth (Foxconn 0489:e156) Diagnostic     {C_RESET}")
@@ -230,8 +256,7 @@ def print_status():
         print(f"  Device ID:          {C_GREEN}0x{usb['vendor']}:0x{usb['product']}{C_RESET} ({usb['manufacturer']} - {usb['product_name']})")
         print(f"  USB Topology:       Bus {usb['busnum']}, Device {usb['devnum']} (Speed: {usb['speed']} Mbps)")
         print(f"  Sysfs Path:         {C_GRAY}{usb['syspath']}{C_RESET}")
-        
-        # Power Management check
+
         ctrl = usb['power_control']
         if ctrl == "on":
             pwr_badge = f"{C_GREEN}● on (Autosuspend DISABLED - Ultra Stable){C_RESET}"
@@ -261,7 +286,7 @@ def print_status():
     print(f"{C_BOLD}[3] BLUEZ CONTROLLER & DEVICES{C_RESET}")
     state = f"{C_GREEN}Powered ON{C_RESET}" if bt["powered"] else f"{C_RED}Powered OFF{C_RESET}"
     print(f"  HCI Controller:     {C_CYAN}{bt['controller']}{C_RESET} ({bt['name']}) - {state}")
-    
+
     if bt["devices"]:
         for d in bt["devices"]:
             conn_badge = f"{C_GREEN}● CONNECTED{C_RESET}" if d["connected"] else f"{C_GRAY}○ Paired (Disconnected){C_RESET}"
@@ -299,7 +324,6 @@ def print_status():
     print(f"{C_BOLD}[5] RECENT KERNEL EVENTS (DMESG){C_RESET}")
     if events:
         for ev in events:
-            # Highlight warnings/errors
             if "error" in ev.lower() or "fail" in ev.lower() or "not supported" in ev.lower():
                 print(f"  {C_YELLOW}{ev}{C_RESET}")
             else:
@@ -310,17 +334,17 @@ def print_status():
     print(f"\n{C_BOLD}{C_CYAN}==================================================================={C_RESET}\n")
 
 
-def monitor_loop():
+def monitor_loop(mask: bool = True):
     """Live monitor audio streaming and connection health."""
     print(f"{C_BOLD}{C_CYAN}Starting live monitoring of MT7902 Bluetooth (Press Ctrl+C to stop)...{C_RESET}\n")
     try:
         while True:
             usb = find_mt7902_usb()
-            sinks = get_audio_sinks()
+            sinks = get_audio_sinks(mask=mask)
             ts = time.strftime("%H:%M:%S")
             pwr = usb.get("power_control", "unknown")
             pwr_str = f"{C_GREEN}PWR: on{C_RESET}" if pwr == "on" else f"{C_RED}PWR: {pwr}{C_RESET}"
-            
+
             if sinks:
                 s = sinks[0]
                 print(f"[{ts}] {pwr_str} | Sink: {s['description']} | Codec: {C_BOLD}{s['codec']}{C_RESET} | Vol: {s['volume']}%")
@@ -336,24 +360,27 @@ def main():
     parser.add_argument("--status", action="store_true", help="Show comprehensive status (default)")
     parser.add_argument("--monitor", action="store_true", help="Live monitor audio streaming and power status")
     parser.add_argument("--json", action="store_true", help="Output raw JSON data")
+    parser.add_argument("--no-mask", action="store_true", help="Do not mask hardware Bluetooth MAC addresses")
     args = parser.parse_args()
+
+    mask_enabled = not args.no_mask
 
     if args.json:
         data = {
             "hardware": find_mt7902_usb(),
             "dkms": get_dkms_status(),
-            "bluez": get_bluetooth_ctl(),
-            "audio_sinks": get_audio_sinks(),
-            "recent_events": get_kernel_events(),
+            "bluez": get_bluetooth_ctl(mask=mask_enabled),
+            "audio_sinks": get_audio_sinks(mask=mask_enabled),
+            "recent_events": get_kernel_events(mask=mask_enabled),
         }
         print(json.dumps(data, indent=2))
         return
 
     if args.monitor:
-        monitor_loop()
+        monitor_loop(mask=mask_enabled)
         return
 
-    print_status()
+    print_status(mask=mask_enabled)
 
 
 if __name__ == "__main__":

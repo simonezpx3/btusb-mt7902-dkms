@@ -2,6 +2,7 @@
 # uninstall.sh: Clean uninstaller for MT7902 Bluetooth DKMS driver & power fix
 
 set -euo pipefail
+umask 022
 
 PACKAGE_NAME="btusb-e156"
 PACKAGE_VERSION="1.0"
@@ -13,15 +14,22 @@ if [[ "${EUID}" -ne 0 ]]; then
     exit 1
 fi
 
+if [[ "${SRC_DIR}" != /usr/src/btusb-e156-* ]]; then
+    echo "Error: Invalid SRC_DIR path."
+    exit 1
+fi
+
 echo "==================================================================="
 echo "  Uninstalling MediaTek MT7902 Bluetooth DKMS Patch"
 echo "==================================================================="
 
 echo "-> Removing DKMS module ${PACKAGE_NAME}/${PACKAGE_VERSION}..."
-dkms remove -m "${PACKAGE_NAME}" -v "${PACKAGE_VERSION}" --all || true
+dkms remove -m "${PACKAGE_NAME}" -v "${PACKAGE_VERSION}" --all >/dev/null 2>&1 || true
 
 echo "-> Cleaning up DKMS source directory ${SRC_DIR}..."
-rm -rf "${SRC_DIR}"
+if [[ -d "${SRC_DIR}" ]]; then
+    rm -rf "${SRC_DIR}"
+fi
 
 echo "-> Removing power management configuration..."
 rm -f /etc/udev/rules.d/99-bluetooth-mt7902-power.rules

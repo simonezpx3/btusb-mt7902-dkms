@@ -3,6 +3,7 @@
 # Supports: Arch Linux, Omarchy, Fedora, Debian/Ubuntu (with dkms & kernel headers)
 
 set -euo pipefail
+umask 022
 
 PACKAGE_NAME="btusb-e156"
 PACKAGE_VERSION="1.0"
@@ -12,6 +13,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${EUID}" -ne 0 ]]; then
     echo "This installation script requires root privileges. Please run with sudo:"
     echo "  sudo ./install.sh"
+    exit 1
+fi
+
+if [[ "${SRC_DIR}" != /usr/src/btusb-e156-* ]]; then
+    echo "Error: Invalid SRC_DIR path."
     exit 1
 fi
 
@@ -35,15 +41,17 @@ fi
 
 # 2. Setup DKMS source tree
 echo "-> Preparing DKMS source directory at ${SRC_DIR}..."
-rm -rf "${SRC_DIR}"
-mkdir -p "${SRC_DIR}"
+if [[ -d "${SRC_DIR}" ]]; then
+    rm -rf "${SRC_DIR}"
+fi
+install -d -m 0755 "${SRC_DIR}"
 
-cp "${SCRIPT_DIR}/btusb.c" "${SRC_DIR}/"
-cp "${SCRIPT_DIR}/Makefile" "${SRC_DIR}/"
-cp "${SCRIPT_DIR}/dkms.conf" "${SRC_DIR}/"
+install -m 0644 "${SCRIPT_DIR}/btusb.c" "${SRC_DIR}/btusb.c"
+install -m 0644 "${SCRIPT_DIR}/Makefile" "${SRC_DIR}/Makefile"
+install -m 0644 "${SCRIPT_DIR}/dkms.conf" "${SRC_DIR}/dkms.conf"
 for h in btmtk.h btintel.h btrtl.h btbcm.h; do
     if [[ -f "${SCRIPT_DIR}/${h}" ]]; then
-        cp "${SCRIPT_DIR}/${h}" "${SRC_DIR}/"
+        install -m 0644 "${SCRIPT_DIR}/${h}" "${SRC_DIR}/${h}"
     fi
 done
 
@@ -58,11 +66,11 @@ dkms install -m "${PACKAGE_NAME}" -v "${PACKAGE_VERSION}" --force
 
 # 4. Power stability configuration (Udev & Modprobe)
 echo "-> Installing USB power management stability rules..."
-cp "${SCRIPT_DIR}/99-bluetooth-mt7902-power.rules" /etc/udev/rules.d/
-chmod 0644 /etc/udev/rules.d/99-bluetooth-mt7902-power.rules
+install -d -m 0755 /etc/udev/rules.d
+install -m 0644 "${SCRIPT_DIR}/99-bluetooth-mt7902-power.rules" /etc/udev/rules.d/99-bluetooth-mt7902-power.rules
 
-cp "${SCRIPT_DIR}/btusb.conf" /etc/modprobe.d/
-chmod 0644 /etc/modprobe.d/btusb.conf
+install -d -m 0755 /etc/modprobe.d
+install -m 0644 "${SCRIPT_DIR}/btusb.conf" /etc/modprobe.d/btusb.conf
 
 echo "-> Reloading udev rules..."
 udevadm control --reload-rules
@@ -84,8 +92,8 @@ done
 
 # 5. Install diagnostic utility
 echo "-> Installing bt-debug utility to /usr/local/bin/bt-debug..."
-cp "${SCRIPT_DIR}/bt-debug" /usr/local/bin/bt-debug
-chmod 0755 /usr/local/bin/bt-debug
+install -d -m 0755 /usr/local/bin
+install -m 0755 "${SCRIPT_DIR}/bt-debug" /usr/local/bin/bt-debug
 
 # 6. Reload module if user requested or system is idle
 echo "-> Module installed successfully."
