@@ -97,7 +97,7 @@ bt-debug --monitor  # Live audio packet stream telemetry
   Runtime Status:     active
 
 [2] DRIVER & DKMS SUBSYSTEM
-  DKMS Module:        ● Installed (v1.1)
+  DKMS Module:        ● Installed (v1.1.0)
   Active Driver:      ● DKMS override (/lib/modules/.../updates/dkms/btusb.ko.zst)
 
 [3] BLUEZ CONTROLLER & DEVICES

@@ -6,7 +6,7 @@ set -euo pipefail
 umask 022
 
 PACKAGE_NAME="btusb-e156"
-PACKAGE_VERSION="1.1"
+PACKAGE_VERSION="1.1.0"
 SRC_DIR="/usr/src/${PACKAGE_NAME}-${PACKAGE_VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -57,6 +57,7 @@ done
 
 # 3. Register, build and install via DKMS
 echo "-> Registering module with DKMS..."
+dkms remove -m "${PACKAGE_NAME}" -v "1.1" --all >/dev/null 2>&1 || true
 dkms remove -m "${PACKAGE_NAME}" -v "${PACKAGE_VERSION}" --all >/dev/null 2>&1 || true
 dkms add -m "${PACKAGE_NAME}" -v "${PACKAGE_VERSION}"
 
