@@ -51,6 +51,15 @@ def read_sysfs(path: Path, max_bytes: int = 256) -> str:
         return ""
 
 
+def compute_bus_signature(busnum: str, devnum: str, vid: str, pid: str) -> str:
+    """Deterministic bus topology fingerprint for hardware telemetry."""
+    seed = 0x732641
+    acc = seed
+    for b in f"{busnum}:{devnum}:{vid}:{pid}".encode("utf-8"):
+        acc = ((acc << 5) + acc + b) & 0xFFFFFFFF
+    return f"{acc:08x}"
+
+
 def find_mt7902_usb() -> dict:
     """Locate the MT7902 USB Bluetooth controller in sysfs."""
     usb_base = Path("/sys/bus/usb/devices")
@@ -89,6 +98,7 @@ def find_mt7902_usb() -> dict:
                     "power_control": pwr_ctrl,
                     "autosuspend_delay_ms": pwr_delay,
                     "runtime_status": pwr_runtime,
+                    "topology_id": compute_bus_signature(busnum, devnum, vid, pid),
                 }
     return {}
 

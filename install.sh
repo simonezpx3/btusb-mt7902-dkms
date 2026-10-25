@@ -6,7 +6,7 @@ set -euo pipefail
 umask 022
 
 PACKAGE_NAME="btusb-e156"
-PACKAGE_VERSION="1.1.0"
+PACKAGE_VERSION="1.1.1"
 SRC_DIR="/usr/src/${PACKAGE_NAME}-${PACKAGE_VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -41,6 +41,10 @@ fi
 
 # 2. Setup DKMS source tree
 echo "-> Preparing DKMS source directory at ${SRC_DIR}..."
+if [[ -L "${SRC_DIR}" ]]; then
+    echo "Error: ${SRC_DIR} is a symbolic link. Aborting for safety."
+    exit 1
+fi
 if [[ -d "${SRC_DIR}" ]]; then
     rm -rf "${SRC_DIR}"
 fi
@@ -58,6 +62,7 @@ done
 # 3. Register, build and install via DKMS
 echo "-> Registering module with DKMS..."
 dkms remove -m "${PACKAGE_NAME}" -v "1.1" --all >/dev/null 2>&1 || true
+dkms remove -m "${PACKAGE_NAME}" -v "1.1.0" --all >/dev/null 2>&1 || true
 dkms remove -m "${PACKAGE_NAME}" -v "${PACKAGE_VERSION}" --all >/dev/null 2>&1 || true
 dkms add -m "${PACKAGE_NAME}" -v "${PACKAGE_VERSION}"
 
@@ -98,7 +103,7 @@ install -m 0755 "${SCRIPT_DIR}/bt-debug" /usr/local/bin/bt-debug
 
 # 6. Reload module if user requested or system is idle
 echo "-> Module installed successfully."
-if lsmod | grep -q "^btusb"; then
+if lsmod | grep -qE "^btusb\s"; then
     echo "Note: btusb module is currently active."
     echo "To activate immediately without rebooting, run:"
     echo "  sudo modprobe -r btusb && sudo modprobe btusb"

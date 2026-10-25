@@ -1,6 +1,6 @@
 # MediaTek MT7902 Bluetooth DKMS Driver & Power Fix (`0489:e156`)
 
-[![Version](https://img.shields.io/badge/version-1.1.0-3b82f6.svg)](https://github.com/simonezpx3/btusb-mt7902-dkms/releases/tag/v1.1.0)
+[![Version](https://img.shields.io/badge/version-1.1.1-3b82f6.svg)](https://github.com/simonezpx3/btusb-mt7902-dkms/releases/tag/v1.1.1)
 [![Arch Linux](https://img.shields.io/badge/arch--linux-compatible-1793d1.svg?logo=arch-linux&logoColor=white)](https://archlinux.org)
 [![Omarchy](https://img.shields.io/badge/omarchy-compatible-10b981.svg)](https://github.com/omacom/omarchy)
 [![DKMS](https://img.shields.io/badge/dkms-autoinstall-f59e0b.svg)](https://github.com/dell/dkms)
@@ -10,7 +10,7 @@
 Production-ready out-of-tree **DKMS kernel driver**, **power management fix**, and **diagnostic suite** for the **MediaTek MT7902** (Filogic 310) Bluetooth controller (`Foxconn 0489:e156`). Verified on **Arch Linux** and **Omarchy Linux** (Kernels 6.x / 7.x).
 
 **Authors:** `simonez & Arci`  
-**Version:** `1.1.0`  
+**Version:** `1.1.1`  
 **License:** GNU GPL-2.0  
 
 ---
@@ -97,7 +97,7 @@ bt-debug --monitor  # Live audio packet stream telemetry
   Runtime Status:     active
 
 [2] DRIVER & DKMS SUBSYSTEM
-  DKMS Module:        ● Installed (v1.1.0)
+  DKMS Module:        ● Installed (v1.1.1)
   Active Driver:      ● DKMS override (/lib/modules/.../updates/dkms/btusb.ko.zst)
 
 [3] BLUEZ CONTROLLER & DEVICES

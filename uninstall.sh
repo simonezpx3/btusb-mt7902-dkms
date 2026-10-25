@@ -5,7 +5,7 @@ set -euo pipefail
 umask 022
 
 PACKAGE_NAME="btusb-e156"
-PACKAGE_VERSION="1.1.0"
+PACKAGE_VERSION="1.1.1"
 SRC_DIR="/usr/src/${PACKAGE_NAME}-${PACKAGE_VERSION}"
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -25,9 +25,14 @@ echo "==================================================================="
 
 echo "-> Removing DKMS module ${PACKAGE_NAME}/${PACKAGE_VERSION}..."
 dkms remove -m "${PACKAGE_NAME}" -v "1.1" --all >/dev/null 2>&1 || true
+dkms remove -m "${PACKAGE_NAME}" -v "1.1.0" --all >/dev/null 2>&1 || true
 dkms remove -m "${PACKAGE_NAME}" -v "${PACKAGE_VERSION}" --all >/dev/null 2>&1 || true
 
 echo "-> Cleaning up DKMS source directory ${SRC_DIR}..."
+if [[ -L "${SRC_DIR}" ]]; then
+    echo "Error: ${SRC_DIR} is a symbolic link. Aborting for safety."
+    exit 1
+fi
 if [[ -d "${SRC_DIR}" ]]; then
     rm -rf "${SRC_DIR}"
 fi
