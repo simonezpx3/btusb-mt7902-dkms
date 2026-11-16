@@ -115,3 +115,13 @@ bt-debug --monitor  # Live audio packet stream telemetry
 
 ===================================================================
 ```
+
+---
+
+## Acknowledgments
+
+This package builds on the work of the following open-source projects and maintainers:
+
+- **[Linux Kernel Bluetooth Subsystem (`drivers/bluetooth/btusb.c`)](https://git.kernel.org/pub/scm/linux/kernel/git/bluetooth/bluetooth-next.git)** — Upstream `btusb` driver and MediaTek `BTUSB_MEDIATEK` / `BTUSB_WIDEBAND_SPEECH` quirk infrastructure.
+- **[DKMS](https://github.com/dell/dkms)** — Dynamic Kernel Module Support framework for clean out-of-tree kernel module builds on Arch Linux.
+- **[BlueZ](https://www.bluez.org/)** & **[PipeWire](https://pipewire.org/)** — Linux Bluetooth protocol stack and A2DP audio diagnostics.
